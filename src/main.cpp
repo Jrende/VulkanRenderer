@@ -30,10 +30,10 @@ int main() {
   });
 
   VulkanTestApp vkApp;
-  vkApp.initVulkan(window);
+  vkApp.init_vulkan(window);
   while(!glfwWindowShouldClose(window)) {
     glfwPollEvents();
-    vkApp.mainLoop();
+    vkApp.draw_frame();
     glfwSwapBuffers(window);
   }
   vkApp.cleanup();
