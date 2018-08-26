@@ -166,6 +166,7 @@ void VulkanTestApp::create_graphics_pipeline() {
   rasterizer.setPolygonMode(vk::PolygonMode::eFill);
   rasterizer.setLineWidth(1.0f);
   rasterizer.setCullMode(vk::CullModeFlagBits::eBack);
+  rasterizer.setFrontFace(vk::FrontFace::eClockwise);
   //Changing these might be useful for shadow mapping
   rasterizer.setDepthBiasEnable(false);
   rasterizer.setDepthBiasConstantFactor(0.0f);
@@ -264,7 +265,7 @@ void VulkanTestApp::create_command_buffers() {
     render_pass_info.setFramebuffer(swapchain_framebuffers[i]);
     render_pass_info.renderArea.setOffset({0, 0});
     render_pass_info.renderArea.setExtent(swapchain_extent);
-    vk::ClearValue clear_color{std::array<float, 4>{0.5, 0.9f, 0.2f, 1.0f}};
+    vk::ClearValue clear_color{std::array<float, 4>{0.5, 0.7f, 0.2f, 1.0f}};
     render_pass_info.setClearValueCount(1);
     render_pass_info.setPClearValues(&clear_color);
     command_buffers[i].beginRenderPass(&render_pass_info, vk::SubpassContents::eInline);

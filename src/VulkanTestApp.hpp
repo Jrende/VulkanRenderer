@@ -7,7 +7,7 @@
 
 class VulkanTestApp {
   private:
-  static const int NUM_FRAME_DATA = 2;
+  static const int MAX_FRAME_IN_FLIGHT = 2;
   VkDebugReportCallbackEXT callback;
   const bool enableValidationLayers = true;
   const std::vector<const char*> validationLayers = {
