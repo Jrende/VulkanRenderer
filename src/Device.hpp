@@ -1,3 +1,4 @@
+#pragma once
 #include <vulkan/vulkan.hpp>
 #include <vector>
 #include <set>
@@ -5,7 +6,6 @@
 #include "SwapChainSupportDetails.hpp"
 #include "SwapChain.hpp"
 
-#pragma once
 namespace jar::device {
 
   std::vector<vk::QueueFamilyProperties> getQueueFamilies(const vk::PhysicalDevice& physicalDevice) {

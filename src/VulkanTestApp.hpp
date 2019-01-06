@@ -1,13 +1,16 @@
+#pragma once
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.hpp>
-#include "QueueFamilyIndices.hpp"
 #include <string>
 #include <array>
+#include <glm/glm.hpp>
+#include "QueueFamilyIndices.hpp"
+#include "Vertex.hpp"
 
 class VulkanTestApp {
   private:
-  static const int MAX_FRAME_IN_FLIGHT = 2;
+  static const int MAX_FRAMES_IN_FLIGHT = 2;
   VkDebugReportCallbackEXT callback;
   const bool enableValidationLayers = true;
   const std::vector<const char*> validationLayers = {
@@ -16,6 +19,7 @@ class VulkanTestApp {
   const std::vector<const char*> device_extensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME
   };
+  int current_frame = 0;
   int width, height;
   GLFWwindow* window;
   QueueFamilyIndices queueFamilyIndices{};
@@ -36,14 +40,24 @@ class VulkanTestApp {
   std::vector<vk::Framebuffer> swapchain_framebuffers;
   vk::CommandPool command_pool;
   std::vector<vk::CommandBuffer> command_buffers;
-  vk::Semaphore image_available_semaphore;
-  vk::Semaphore render_finished_semaphore;
+  std::vector<vk::Semaphore> image_available_semaphores;
+  std::vector<vk::Semaphore> render_finished_semaphores;
+  std::vector<vk::Fence> in_flight_fences;
+  vk::Buffer vertex_buffer;
+  vk::DeviceMemory vertex_buffer_memory;
+
+  std::vector<Vertex> vertices = {{
+    {{0.0f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+    {{0.75f, 0.75f, 0.0f}, {0.0f, 1.0f, 1.0f}},
+    {{-0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}}
+  }};
 
   void setupDebugCallback();
   void create_logical_device();
   void create_instance();
   void create_surface();
   void select_physical_device();
+  void create_vertex_buffer();
   void create_command_buffers();
   void create_semaphores();
   void create_swapchain();
@@ -52,6 +66,8 @@ class VulkanTestApp {
   void create_graphics_pipeline();
   void create_frame_buffers();
   void create_command_pool();
+  void create_buffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties, vk::Buffer& buffer, vk::DeviceMemory& buffer_memory);
+  void copy_buffer(vk::Buffer src_buffer, vk::Buffer dst_buffer, vk::DeviceSize size);
 
   public:
     void draw_frame();

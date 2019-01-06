@@ -7,6 +7,7 @@
 #include "SwapChain.hpp"
 #include "SwapChainSupportDetails.hpp"
 #include "Shader.hpp"
+#include "Memory.hpp"
 
 void VulkanTestApp::create_instance() {
   vk::ApplicationInfo appInfo{
@@ -105,9 +106,21 @@ void VulkanTestApp::create_logical_device() {
 }
 
 void VulkanTestApp::create_semaphores() {
-  vk::SemaphoreCreateInfo semaphore_info{};
-  if(device.createSemaphore(&semaphore_info, nullptr, &image_available_semaphore) != vk::Result::eSuccess || device.createSemaphore(&semaphore_info, nullptr, &render_finished_semaphore) != vk::Result::eSuccess) {
-    throw std::runtime_error("Failed to create semaphores!"); 
+  image_available_semaphores.resize(MAX_FRAMES_IN_FLIGHT);
+  render_finished_semaphores.resize(MAX_FRAMES_IN_FLIGHT);
+  in_flight_fences.resize(MAX_FRAMES_IN_FLIGHT);
+  for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    auto& image_available_semaphore = image_available_semaphores[i];
+    auto& render_finished_semaphore = render_finished_semaphores[i];
+    vk::SemaphoreCreateInfo semaphore_info{};
+    vk::FenceCreateInfo fence_info{};
+    fence_info.setFlags(vk::FenceCreateFlagBits::eSignaled);
+    if(
+        device.createSemaphore(&semaphore_info, nullptr, &image_available_semaphore) != vk::Result::eSuccess ||
+        device.createSemaphore(&semaphore_info, nullptr, &render_finished_semaphore) != vk::Result::eSuccess ||
+        device.createFence(&fence_info, nullptr, &in_flight_fences[i]) != vk::Result::eSuccess) {
+      throw std::runtime_error("Failed to create semaphores!"); 
+    }
   }
 }
 
@@ -133,10 +146,12 @@ void VulkanTestApp::create_graphics_pipeline() {
   vk::PipelineShaderStageCreateInfo shader_stages[] = {frag_shader_stage_create_info, vert_shader_stage_create_info};
 
   vk::PipelineVertexInputStateCreateInfo vertex_info{};
-  vertex_info.setVertexBindingDescriptionCount(0);
-  vertex_info.setPVertexBindingDescriptions(nullptr);
-  vertex_info.setVertexAttributeDescriptionCount(0);
-  vertex_info.setPVertexAttributeDescriptions(nullptr);
+  auto bindingDescription = Vertex::getBindingDescription();
+  vertex_info.setVertexBindingDescriptionCount(1);
+  vertex_info.setPVertexBindingDescriptions(&bindingDescription);
+  auto attributeDescription = Vertex::getAttributeDescriptions();
+  vertex_info.setVertexAttributeDescriptionCount(attributeDescription.size());
+  vertex_info.setPVertexAttributeDescriptions(attributeDescription.data());
 
   vk::PipelineInputAssemblyStateCreateInfo input_assembly{};
   input_assembly.setTopology(vk::PrimitiveTopology::eTriangleList);
@@ -241,6 +256,87 @@ void VulkanTestApp::create_graphics_pipeline() {
   device.destroyShaderModule(frag_shader_module);
 }
 
+void VulkanTestApp::create_vertex_buffer() {
+  vk::DeviceSize buffer_size = sizeof(vertices[0]) * vertices.size();
+
+  vk::Buffer staging_buffer;
+  vk::DeviceMemory staging_buffer_memory;
+  create_buffer(buffer_size,
+      vk::BufferUsageFlagBits::eTransferSrc,
+      vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+      staging_buffer,
+      staging_buffer_memory);
+
+  void* data = device.mapMemory(staging_buffer_memory, 0, buffer_size);
+  memcpy(data, vertices.data(), (size_t) buffer_size);
+  device.unmapMemory(staging_buffer_memory);
+
+  create_buffer(buffer_size,
+      vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
+      vk::MemoryPropertyFlagBits::eDeviceLocal,
+      vertex_buffer,
+      vertex_buffer_memory);
+
+  copy_buffer(staging_buffer, vertex_buffer, buffer_size);
+  device.destroyBuffer(staging_buffer, nullptr);
+  device.freeMemory(staging_buffer_memory, nullptr);
+
+}
+
+void VulkanTestApp::create_buffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties, vk::Buffer& buffer, vk::DeviceMemory& buffer_memory) {
+  vk::BufferCreateInfo buffer_info{};
+  buffer_info.setSize(size);
+  buffer_info.setUsage(usage);
+  buffer_info.setSharingMode(vk::SharingMode::eExclusive);
+
+  if (device.createBuffer(&buffer_info, nullptr, &buffer) != vk::Result::eSuccess) {
+    throw std::runtime_error("failed to create vertex buffer!");
+  }
+
+  vk::MemoryRequirements mem_requirements = device.getBufferMemoryRequirements(buffer);
+
+
+  const auto& memory_type_index = jar::memory::findMemoryType(physical_device,
+      mem_requirements.memoryTypeBits,
+      properties);
+  vk::MemoryAllocateInfo allocInfo = {};
+  allocInfo.setAllocationSize(mem_requirements.size);
+  allocInfo.setMemoryTypeIndex(memory_type_index);
+
+  if (device.allocateMemory(&allocInfo, nullptr, &buffer_memory) != vk::Result::eSuccess) {
+    throw std::runtime_error("failed to allocate vertex buffer memory!");
+  }
+
+  device.bindBufferMemory(buffer, buffer_memory, 0);
+}
+
+void VulkanTestApp::copy_buffer(vk::Buffer src_buffer, vk::Buffer dst_buffer, vk::DeviceSize size) {
+    vk::CommandBufferAllocateInfo allocInfo = {};
+    allocInfo.setLevel(vk::CommandBufferLevel::ePrimary);
+    allocInfo.setCommandPool(command_pool);
+    allocInfo.setCommandBufferCount(1);
+
+    vk::CommandBuffer command_buffer;
+    device.allocateCommandBuffers(&allocInfo, &command_buffer);
+
+    vk::CommandBufferBeginInfo begin_info = {};
+    begin_info.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+    command_buffer.begin(&begin_info);
+
+    vk::BufferCopy copy_region = {};
+    copy_region.setSize(size);
+    command_buffer.copyBuffer(src_buffer, dst_buffer, 1, &copy_region);
+
+    command_buffer.end();
+    vk::SubmitInfo submit_info = {};
+    submit_info.setCommandBufferCount(1);
+    submit_info.setPCommandBuffers(&command_buffer);
+
+    graphics_queue.submit(1, &submit_info, nullptr);
+    graphics_queue.waitIdle();
+    device.freeCommandBuffers(command_pool, 1, &command_buffer);
+}
+
 void VulkanTestApp::create_command_buffers() {
   command_buffers.resize(swapchain_framebuffers.size());
   vk::CommandBufferAllocateInfo alloc_info{};
@@ -255,9 +351,10 @@ void VulkanTestApp::create_command_buffers() {
 
   for(size_t i = 0; i < command_buffers.size(); i++) {
     vk::CommandBufferBeginInfo begin_info{};
+    auto& cmd_buf = command_buffers[i];
     begin_info.setFlags(vk::CommandBufferUsageFlagBits::eSimultaneousUse);
     begin_info.setPInheritanceInfo(nullptr);
-    if(command_buffers[i].begin(&begin_info) != vk::Result::eSuccess) {
+    if(cmd_buf.begin(&begin_info) != vk::Result::eSuccess) {
       throw std::runtime_error("failed to begin recording command buffer!");
     }
     vk::RenderPassBeginInfo render_pass_info{};
@@ -268,16 +365,16 @@ void VulkanTestApp::create_command_buffers() {
     vk::ClearValue clear_color{std::array<float, 4>{0.5, 0.7f, 0.2f, 1.0f}};
     render_pass_info.setClearValueCount(1);
     render_pass_info.setPClearValues(&clear_color);
-    command_buffers[i].beginRenderPass(&render_pass_info, vk::SubpassContents::eInline);
-      command_buffers[i].bindPipeline(vk::PipelineBindPoint::eGraphics, graphics_pipeline);
-      command_buffers[i].draw(3, 1, 0, 0);
-    command_buffers[i].endRenderPass();
-    command_buffers[i].end();
-    /*
-    if(command_buffers[i].end() != vk::Result::eSuccess) {
-      throw std::runtime_error("failed to record command buffer!");
-    }
-    */
+    cmd_buf.beginRenderPass(&render_pass_info, vk::SubpassContents::eInline);
+
+    cmd_buf.bindPipeline(vk::PipelineBindPoint::eGraphics, graphics_pipeline);
+    vk::Buffer vertex_buffers[] = {vertex_buffer};
+    vk::DeviceSize offsets[] = {0};
+    cmd_buf.bindVertexBuffers(0, 1, vertex_buffers, offsets);
+    cmd_buf.draw(static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+
+    cmd_buf.endRenderPass();
+    cmd_buf.end();
   }
 }
 
@@ -456,12 +553,18 @@ void VulkanTestApp::init_vulkan(GLFWwindow* window) {
   create_graphics_pipeline();
   create_frame_buffers();
   create_command_pool();
+  create_vertex_buffer();
   create_command_buffers();
   create_semaphores();
 }
 
 void VulkanTestApp::draw_frame() {
+  device.waitForFences(1, &in_flight_fences[current_frame], true, std::numeric_limits<uint64_t>::max());
+  device.resetFences(1, &in_flight_fences[current_frame]);
+
   uint32_t image_index;
+  const auto& image_available_semaphore = image_available_semaphores[current_frame];
+  const auto& render_finished_semaphore = render_finished_semaphores[current_frame];
   device.acquireNextImageKHR(swapchain, std::numeric_limits<uint64_t>::max(), image_available_semaphore, nullptr, &image_index);
 
   vk::SubmitInfo submit_info{};
@@ -477,7 +580,7 @@ void VulkanTestApp::draw_frame() {
   vk::Semaphore signal_semaphores[] = {render_finished_semaphore};
   submit_info.setSignalSemaphoreCount(1);
   submit_info.setPSignalSemaphores(signal_semaphores);
-  if (graphics_queue.submit(1, &submit_info, nullptr) != vk::Result::eSuccess) {
+  if (graphics_queue.submit(1, &submit_info, in_flight_fences[current_frame]) != vk::Result::eSuccess) {
     throw std::runtime_error("failed to submit draw command buffer!");
   }
 
@@ -490,19 +593,24 @@ void VulkanTestApp::draw_frame() {
   present_info.setPImageIndices(&image_index);
   present_info.setPResults(nullptr);
   present_queue.presentKHR(&present_info);
-  present_queue.waitIdle();
+  current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 //TODO: RAII this
 void VulkanTestApp::cleanup() {
   std::cout << "Cleanup\n";
   device.waitIdle();
-  device.destroySemaphore(render_finished_semaphore);
-  device.destroySemaphore(image_available_semaphore);
+  for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    device.destroySemaphore(render_finished_semaphores[i]);
+    device.destroySemaphore(image_available_semaphores[i]);
+    device.destroyFence(in_flight_fences[i]);
+  }
   for(const auto& framebuffer: swapchain_framebuffers) {
     device.destroyFramebuffer(framebuffer);
   }
   device.destroySwapchainKHR(swapchain);
+  device.destroyBuffer(vertex_buffer);
+  device.freeMemory(vertex_buffer_memory, nullptr);
   device.destroyRenderPass(render_pass);
   device.destroyPipelineLayout(pipeline_layout);
   device.destroyPipeline(graphics_pipeline);

@@ -1,6 +1,8 @@
 #TODO: Create find_package for glfw, glew, glm
 cmake_minimum_required (VERSION 2.6)
 project (Vulkan)
+
+set(OpenGL_GL_PREFERENCE "GLVND")
 find_package(OpenGL REQUIRED)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y -static-libgcc -static-libstdc++")
@@ -18,6 +20,7 @@ add_subdirectory(lib/glfw-3.2.1)
 include_directories (SYSTEM
   lib/glfw/include
   $ENV{VULKAN_SDK}/include
+  lib/glm
 )
 
 link_directories($ENV{VULKAN_SDK}/lib)
