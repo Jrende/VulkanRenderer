@@ -43,21 +43,23 @@ class VulkanTestApp {
   std::vector<vk::Semaphore> image_available_semaphores;
   std::vector<vk::Semaphore> render_finished_semaphores;
   std::vector<vk::Fence> in_flight_fences;
-  vk::Buffer vertex_buffer;
-  vk::DeviceMemory vertex_buffer_memory;
+  vk::Buffer model_buffer;
+  vk::DeviceMemory model_buffer_memory;
 
   std::vector<Vertex> vertices = {{
-    {{0.0f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-    {{0.75f, 0.75f, 0.0f}, {0.0f, 1.0f, 1.0f}},
-    {{-0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}}
+    {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 0.0f}},
+    {{ 0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+    {{ 0.5f,  0.5f, 0.0f}, {0.0f, 1.0f, 1.0f}},
+    {{-0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}}
   }};
+  std::vector<uint16_t> indices = {0, 1, 2, 2, 3, 0};
 
   void setupDebugCallback();
   void create_logical_device();
   void create_instance();
   void create_surface();
   void select_physical_device();
-  void create_vertex_buffer();
+  void create_model_buffer();
   void create_command_buffers();
   void create_semaphores();
   void create_swapchain();
@@ -66,6 +68,7 @@ class VulkanTestApp {
   void create_graphics_pipeline();
   void create_frame_buffers();
   void create_command_pool();
+
   void create_buffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties, vk::Buffer& buffer, vk::DeviceMemory& buffer_memory);
   void copy_buffer(vk::Buffer src_buffer, vk::Buffer dst_buffer, vk::DeviceSize size);
 

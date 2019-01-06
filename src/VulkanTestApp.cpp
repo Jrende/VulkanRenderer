@@ -256,8 +256,11 @@ void VulkanTestApp::create_graphics_pipeline() {
   device.destroyShaderModule(frag_shader_module);
 }
 
-void VulkanTestApp::create_vertex_buffer() {
-  vk::DeviceSize buffer_size = sizeof(vertices[0]) * vertices.size();
+
+void VulkanTestApp::create_model_buffer() {
+  vk::DeviceSize vertex_size = sizeof(vertices[0]) * vertices.size();
+  vk::DeviceSize index_size = sizeof(indices[0]) * indices.size();
+  vk::DeviceSize buffer_size = vertex_size + index_size;
 
   vk::Buffer staging_buffer;
   vk::DeviceMemory staging_buffer_memory;
@@ -268,20 +271,48 @@ void VulkanTestApp::create_vertex_buffer() {
       staging_buffer_memory);
 
   void* data = device.mapMemory(staging_buffer_memory, 0, buffer_size);
-  memcpy(data, vertices.data(), (size_t) buffer_size);
+  memcpy(static_cast<char*>(data), vertices.data(), vertex_size);
+  memcpy(static_cast<char*>(data) + vertex_size, indices.data(), index_size);
   device.unmapMemory(staging_buffer_memory);
 
   create_buffer(buffer_size,
-      vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer,
+      vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer,
       vk::MemoryPropertyFlagBits::eDeviceLocal,
-      vertex_buffer,
-      vertex_buffer_memory);
+      model_buffer,
+      model_buffer_memory);
 
-  copy_buffer(staging_buffer, vertex_buffer, buffer_size);
+  copy_buffer(staging_buffer, model_buffer, buffer_size);
   device.destroyBuffer(staging_buffer, nullptr);
   device.freeMemory(staging_buffer_memory, nullptr);
-
 }
+
+/*
+void VulkanTestApp::create_index_buffer() {
+  vk::DeviceSize buffer_size = sizeof(indices[0]) * indices.size();
+
+  vk::Buffer staging_buffer;
+  vk::DeviceMemory staging_buffer_memory;
+  create_buffer(buffer_size,
+      vk::BufferUsageFlagBits::eTransferSrc,
+      vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+      staging_buffer,
+      staging_buffer_memory);
+
+  void* data = device.mapMemory(staging_buffer_memory, 0, buffer_size);
+  memcpy(data, indices.data(), (size_t) buffer_size);
+  device.unmapMemory(staging_buffer_memory);
+
+  create_buffer(buffer_size,
+      vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer,
+      vk::MemoryPropertyFlagBits::eDeviceLocal,
+      index_buffer,
+      index_buffer_memory);
+
+  copy_buffer(staging_buffer, index_buffer, buffer_size);
+  device.destroyBuffer(staging_buffer, nullptr);
+  device.freeMemory(staging_buffer_memory, nullptr);
+}
+*/
 
 void VulkanTestApp::create_buffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties, vk::Buffer& buffer, vk::DeviceMemory& buffer_memory) {
   vk::BufferCreateInfo buffer_info{};
@@ -367,11 +398,15 @@ void VulkanTestApp::create_command_buffers() {
     render_pass_info.setPClearValues(&clear_color);
     cmd_buf.beginRenderPass(&render_pass_info, vk::SubpassContents::eInline);
 
+
     cmd_buf.bindPipeline(vk::PipelineBindPoint::eGraphics, graphics_pipeline);
-    vk::Buffer vertex_buffers[] = {vertex_buffer};
+    vk::Buffer model_buffers[] = {model_buffer};
     vk::DeviceSize offsets[] = {0};
-    cmd_buf.bindVertexBuffers(0, 1, vertex_buffers, offsets);
-    cmd_buf.draw(static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+    cmd_buf.bindVertexBuffers(0, 1, model_buffers, offsets);
+
+    vk::DeviceSize vertex_size = sizeof(vertices[0]) * vertices.size();
+    cmd_buf.bindIndexBuffer(model_buffer, vertex_size, vk::IndexType::eUint16);
+    cmd_buf.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
     cmd_buf.endRenderPass();
     cmd_buf.end();
@@ -553,7 +588,7 @@ void VulkanTestApp::init_vulkan(GLFWwindow* window) {
   create_graphics_pipeline();
   create_frame_buffers();
   create_command_pool();
-  create_vertex_buffer();
+  create_model_buffer();
   create_command_buffers();
   create_semaphores();
 }
@@ -609,8 +644,8 @@ void VulkanTestApp::cleanup() {
     device.destroyFramebuffer(framebuffer);
   }
   device.destroySwapchainKHR(swapchain);
-  device.destroyBuffer(vertex_buffer);
-  device.freeMemory(vertex_buffer_memory, nullptr);
+  device.destroyBuffer(model_buffer);
+  device.freeMemory(model_buffer_memory, nullptr);
   device.destroyRenderPass(render_pass);
   device.destroyPipelineLayout(pipeline_layout);
   device.destroyPipeline(graphics_pipeline);
