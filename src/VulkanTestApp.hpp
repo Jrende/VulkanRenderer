@@ -4,7 +4,6 @@
 #include <vulkan/vulkan.hpp>
 #include <string>
 #include <array>
-#include <glm/glm.hpp>
 #include "QueueFamilyIndices.hpp"
 #include "Vertex.hpp"
 
@@ -34,6 +33,7 @@ class VulkanTestApp {
   vk::Format swapchain_image_format;
   vk::Extent2D swapchain_extent;
   std::vector<vk::ImageView> swapchain_image_views;
+  vk::DescriptorSetLayout descriptor_set_layout;
   vk::PipelineLayout pipeline_layout;
   vk::RenderPass render_pass;
   vk::Pipeline graphics_pipeline;
@@ -45,9 +45,13 @@ class VulkanTestApp {
   std::vector<vk::Fence> in_flight_fences;
   vk::Buffer model_buffer;
   vk::DeviceMemory model_buffer_memory;
+  std::vector<vk::Buffer> uniform_buffers;
+  std::vector<vk::DeviceMemory> uniform_buffers_memory;
+  vk::DescriptorPool descriptor_pool;
+  std::vector<vk::DescriptorSet> descriptor_sets;
 
   std::vector<Vertex> vertices = {{
-    {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 0.0f}},
+    {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}},
     {{ 0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
     {{ 0.5f,  0.5f, 0.0f}, {0.0f, 1.0f, 1.0f}},
     {{-0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}}
@@ -68,7 +72,12 @@ class VulkanTestApp {
   void create_graphics_pipeline();
   void create_frame_buffers();
   void create_command_pool();
+  void create_descriptor_set_layout();
+  void create_uniform_buffers();
+  void create_descriptor_pool();
+  void create_descriptor_sets();
 
+  void update_uniform_buffer(uint32_t current_image);
   void create_buffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties, vk::Buffer& buffer, vk::DeviceMemory& buffer_memory);
   void copy_buffer(vk::Buffer src_buffer, vk::Buffer dst_buffer, vk::DeviceSize size);
 

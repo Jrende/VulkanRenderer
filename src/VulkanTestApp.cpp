@@ -8,6 +8,13 @@
 #include "SwapChainSupportDetails.hpp"
 #include "Shader.hpp"
 #include "Memory.hpp"
+#include "UniformBufferObject.hpp"
+
+#define GLM_FORCE_RADIANS
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <chrono>
 
 void VulkanTestApp::create_instance() {
   vk::ApplicationInfo appInfo{
@@ -180,8 +187,8 @@ void VulkanTestApp::create_graphics_pipeline() {
   rasterizer.setRasterizerDiscardEnable(false);
   rasterizer.setPolygonMode(vk::PolygonMode::eFill);
   rasterizer.setLineWidth(1.0f);
-  rasterizer.setCullMode(vk::CullModeFlagBits::eBack);
-  rasterizer.setFrontFace(vk::FrontFace::eClockwise);
+  rasterizer.setCullMode(vk::CullModeFlagBits::eNone);
+  rasterizer.setFrontFace(vk::FrontFace::eCounterClockwise);
   //Changing these might be useful for shadow mapping
   rasterizer.setDepthBiasEnable(false);
   rasterizer.setDepthBiasConstantFactor(0.0f);
@@ -223,8 +230,8 @@ void VulkanTestApp::create_graphics_pipeline() {
   dynamic_state.setPDynamicStates(dynamic_states);
 
   vk::PipelineLayoutCreateInfo pipeline_layout_info{};
-  pipeline_layout_info.setSetLayoutCount(0);
-  pipeline_layout_info.setPSetLayouts(nullptr);
+  pipeline_layout_info.setSetLayoutCount(1);
+  pipeline_layout_info.setPSetLayouts(&descriptor_set_layout);
   pipeline_layout_info.setPushConstantRangeCount(0);
   pipeline_layout_info.setPPushConstantRanges(nullptr);
 
@@ -286,34 +293,6 @@ void VulkanTestApp::create_model_buffer() {
   device.freeMemory(staging_buffer_memory, nullptr);
 }
 
-/*
-void VulkanTestApp::create_index_buffer() {
-  vk::DeviceSize buffer_size = sizeof(indices[0]) * indices.size();
-
-  vk::Buffer staging_buffer;
-  vk::DeviceMemory staging_buffer_memory;
-  create_buffer(buffer_size,
-      vk::BufferUsageFlagBits::eTransferSrc,
-      vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
-      staging_buffer,
-      staging_buffer_memory);
-
-  void* data = device.mapMemory(staging_buffer_memory, 0, buffer_size);
-  memcpy(data, indices.data(), (size_t) buffer_size);
-  device.unmapMemory(staging_buffer_memory);
-
-  create_buffer(buffer_size,
-      vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eIndexBuffer,
-      vk::MemoryPropertyFlagBits::eDeviceLocal,
-      index_buffer,
-      index_buffer_memory);
-
-  copy_buffer(staging_buffer, index_buffer, buffer_size);
-  device.destroyBuffer(staging_buffer, nullptr);
-  device.freeMemory(staging_buffer_memory, nullptr);
-}
-*/
-
 void VulkanTestApp::create_buffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties, vk::Buffer& buffer, vk::DeviceMemory& buffer_memory) {
   vk::BufferCreateInfo buffer_info{};
   buffer_info.setSize(size);
@@ -368,6 +347,70 @@ void VulkanTestApp::copy_buffer(vk::Buffer src_buffer, vk::Buffer dst_buffer, vk
     device.freeCommandBuffers(command_pool, 1, &command_buffer);
 }
 
+void VulkanTestApp::create_uniform_buffers() {
+  vk::DeviceSize buffer_size = sizeof(UniformBufferObject);
+
+  uniform_buffers.resize(swapchain_images.size());
+  uniform_buffers_memory.resize(swapchain_images.size());
+
+  for (size_t i = 0; i < swapchain_images.size(); i++) {
+    create_buffer(buffer_size,
+        vk::BufferUsageFlagBits::eUniformBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent,
+        uniform_buffers[i],
+        uniform_buffers_memory[i]);
+  }
+}
+
+void VulkanTestApp::create_descriptor_pool() {
+  vk::DescriptorPoolSize pool_size = {};
+  pool_size.setType(vk::DescriptorType::eUniformBuffer);
+  pool_size.setDescriptorCount(static_cast<uint32_t>(swapchain_images.size()));
+
+  vk::DescriptorPoolCreateInfo pool_info = {};
+  pool_info.setPoolSizeCount(1);
+  pool_info.setPPoolSizes(&pool_size);
+  pool_info.setMaxSets(static_cast<uint32_t>(swapchain_images.size()));
+
+  if(device.createDescriptorPool(&pool_info, nullptr, &descriptor_pool) != vk::Result::eSuccess) {
+    throw std::runtime_error("failed to create descriptor pool!");
+  }
+}
+
+void VulkanTestApp::create_descriptor_sets() {
+  std::vector<vk::DescriptorSetLayout> layouts(swapchain_images.size(), descriptor_set_layout);
+  vk::DescriptorSetAllocateInfo alloc_info = {};
+  alloc_info.setDescriptorPool(descriptor_pool);
+  alloc_info.setDescriptorSetCount(static_cast<uint32_t>(swapchain_images.size()));
+  alloc_info.setPSetLayouts(layouts.data());
+
+  descriptor_sets.resize(swapchain_images.size());
+  if (device.allocateDescriptorSets(&alloc_info, descriptor_sets.data()) != vk::Result::eSuccess) {
+    throw std::runtime_error("failed to allocate descriptor sets!");
+  }
+
+  for(size_t i = 0; i < swapchain_images.size(); i++) {
+    vk::DescriptorBufferInfo bufferInfo = {};
+    bufferInfo.setBuffer(uniform_buffers[i]);
+    bufferInfo.setOffset(0);
+    bufferInfo.setRange(sizeof(UniformBufferObject));
+
+    vk::WriteDescriptorSet descriptor_write = {};
+    descriptor_write.setDstSet(descriptor_sets[i]);
+    descriptor_write.setDstBinding(0);
+    descriptor_write.setDstArrayElement(0);
+
+    descriptor_write.setDescriptorType(vk::DescriptorType::eUniformBuffer);
+    descriptor_write.setDescriptorCount(1);
+
+    descriptor_write.setPBufferInfo(&bufferInfo);
+    descriptor_write.setPImageInfo(nullptr); // Optional
+    descriptor_write.setPTexelBufferView(nullptr); // Optional
+
+    device.updateDescriptorSets(1, &descriptor_write, 0, nullptr);
+  }
+}
+
 void VulkanTestApp::create_command_buffers() {
   command_buffers.resize(swapchain_framebuffers.size());
   vk::CommandBufferAllocateInfo alloc_info{};
@@ -398,7 +441,6 @@ void VulkanTestApp::create_command_buffers() {
     render_pass_info.setPClearValues(&clear_color);
     cmd_buf.beginRenderPass(&render_pass_info, vk::SubpassContents::eInline);
 
-
     cmd_buf.bindPipeline(vk::PipelineBindPoint::eGraphics, graphics_pipeline);
     vk::Buffer model_buffers[] = {model_buffer};
     vk::DeviceSize offsets[] = {0};
@@ -406,6 +448,7 @@ void VulkanTestApp::create_command_buffers() {
 
     vk::DeviceSize vertex_size = sizeof(vertices[0]) * vertices.size();
     cmd_buf.bindIndexBuffer(model_buffer, vertex_size, vk::IndexType::eUint16);
+    cmd_buf.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipeline_layout, 0, 1, &descriptor_sets[i], 0, nullptr);
     cmd_buf.drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
     cmd_buf.endRenderPass();
@@ -571,6 +614,22 @@ void VulkanTestApp::create_command_pool() {
   }
 }
 
+void VulkanTestApp::create_descriptor_set_layout() {
+  vk::DescriptorSetLayoutBinding ubo_layout_binding = {};
+  ubo_layout_binding.setBinding(0);
+  ubo_layout_binding.setDescriptorType(vk::DescriptorType::eUniformBuffer);
+  ubo_layout_binding.setDescriptorCount(1);
+  ubo_layout_binding.setStageFlags(vk::ShaderStageFlagBits::eVertex);
+  ubo_layout_binding.setPImmutableSamplers(nullptr);
+
+  vk::DescriptorSetLayoutCreateInfo layout_info = {};
+  layout_info.setBindingCount(1);
+  layout_info.setPBindings(&ubo_layout_binding);
+  if(device.createDescriptorSetLayout(&layout_info, nullptr, &descriptor_set_layout) != vk::Result::eSuccess) {
+    throw std::runtime_error("failed to create descriptor set layout!");
+  }
+}
+
 void VulkanTestApp::init_vulkan(GLFWwindow* window) {
   this->window = window;
   glfwGetWindowSize(window, &this->width, &this->height);
@@ -585,10 +644,14 @@ void VulkanTestApp::init_vulkan(GLFWwindow* window) {
   create_swapchain();
   create_image_views();
   create_render_pass();
+  create_descriptor_set_layout();
   create_graphics_pipeline();
   create_frame_buffers();
   create_command_pool();
-  create_model_buffer();
+  create_texture_image();
+  create_uniform_buffers();
+  create_descriptor_pool();
+  create_descriptor_sets();
   create_command_buffers();
   create_semaphores();
 }
@@ -602,8 +665,9 @@ void VulkanTestApp::draw_frame() {
   const auto& render_finished_semaphore = render_finished_semaphores[current_frame];
   device.acquireNextImageKHR(swapchain, std::numeric_limits<uint64_t>::max(), image_available_semaphore, nullptr, &image_index);
 
-  vk::SubmitInfo submit_info{};
+  update_uniform_buffer(image_index);
 
+  vk::SubmitInfo submit_info{};
   vk::Semaphore wait_semaphores[] = {image_available_semaphore};
   vk::PipelineStageFlags wait_stages[] = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
   submit_info.setWaitSemaphoreCount(1);
@@ -631,6 +695,25 @@ void VulkanTestApp::draw_frame() {
   current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
+void VulkanTestApp::update_uniform_buffer(uint32_t current_image) {
+  static auto startTime = std::chrono::high_resolution_clock::now();
+
+  auto currentTime = std::chrono::high_resolution_clock::now();
+  float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
+  glm::mat4 model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+  glm::mat4 proj = glm::perspective<float>(glm::radians(45.0f), swapchain_extent.width / (float) swapchain_extent.height, 0.1f, 10.0f);
+  glm::mat4 view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+  proj[1][1] *= -1;
+
+  UniformBufferObject ubo = {};
+  ubo.mvp = proj * view * model;
+
+  void* data = device.mapMemory(uniform_buffers_memory[current_image], 0, sizeof(ubo));
+  memcpy(data, &ubo, sizeof(ubo));
+  device.unmapMemory(uniform_buffers_memory[current_image]);
+}
+
 //TODO: RAII this
 void VulkanTestApp::cleanup() {
   std::cout << "Cleanup\n";
@@ -643,9 +726,17 @@ void VulkanTestApp::cleanup() {
   for(const auto& framebuffer: swapchain_framebuffers) {
     device.destroyFramebuffer(framebuffer);
   }
+
+  device.destroyDescriptorSetLayout(descriptor_set_layout);
+  for(size_t i = 0; i < swapchain_images.size(); i++) {
+    device.destroyBuffer(uniform_buffers[i]);
+    device.freeMemory(uniform_buffers_memory[i]);
+  }
+
+  device.destroyDescriptorPool(descriptor_pool);
   device.destroySwapchainKHR(swapchain);
   device.destroyBuffer(model_buffer);
-  device.freeMemory(model_buffer_memory, nullptr);
+  device.freeMemory(model_buffer_memory);
   device.destroyRenderPass(render_pass);
   device.destroyPipelineLayout(pipeline_layout);
   device.destroyPipeline(graphics_pipeline);

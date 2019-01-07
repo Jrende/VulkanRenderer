@@ -5,7 +5,7 @@ project (Vulkan)
 set(OpenGL_GL_PREFERENCE "GLVND")
 find_package(OpenGL REQUIRED)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1y -static-libgcc -static-libstdc++")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++2a -static-libgcc -static-libstdc++")
 
 MESSAGE("VULKAN_SDK: $ENV{VULKAN_SDK}")
 #MESSAGE("Vulkan library: ${VULKAN_LIBRARY}")
@@ -21,6 +21,7 @@ include_directories (SYSTEM
   lib/glfw/include
   $ENV{VULKAN_SDK}/include
   lib/glm
+  lib/include
 )
 
 link_directories($ENV{VULKAN_SDK}/lib)
